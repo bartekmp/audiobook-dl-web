@@ -1,0 +1,61 @@
+# .dockerignore - Files to exclude from Docker build
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CONTRIBUTING.md
+LOGGING.md
+*.md
+docs/
+
+# Configuration and data (will be mounted as volumes)
+config/
+downloads/
+*.toml
+!pyproject.toml
+cookies.txt
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/

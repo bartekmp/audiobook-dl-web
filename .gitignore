@@ -1,0 +1,21 @@
+__pycache__/
+build/
+dist/
+*.egg-info/
+*.egg
+.venv/
+venv/
+.vscode/
+
+# Ruff
+.ruff_cache/
+
+# Application specific
+config/
+downloads/
+*.toml
+!pyproject.toml
+cookies.txt
+.env
+*.log
+logs/

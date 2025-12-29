@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Download Audiobooks - audiobook-dl-web{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <h2 class="mb-4"><i class="bi bi-download"></i> Download Audiobooks</h2>
+
+        <!-- Download Form -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Add Downloads</h5>
+            </div>
+            <div class="card-body">
+                <form id="downloadForm">
+                    <div class="mb-3">
+                        <label for="urls" class="form-label">Audiobook URLs</label>
+                        <textarea class="form-control" id="urls" name="urls" rows="5" required
+                            placeholder="Paste audiobook URLs here (one per line)&#10;&#10;Example:&#10;https://www.storytel.com/pl/books/book-name-12345&#10;https://www.storytel.com/pl/books/another-book-67890"></textarea>
+                        <div class="form-text">Paste one or more audiobook listening page URLs, one per line</div>
+                    </div>
+
+                    <!-- Important Warning for Storytel -->
+                    {% if 'storytel' in configured_services %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Storytel Users:</strong> Remember to add each book to your library shelf before
+                        attempting to download it!
+                    </div>
+                    {% endif %}
+
+                    <!-- Advanced Options -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <button class="btn btn-link text-decoration-none p-0" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#advancedOptions">
+                                    <i class="bi bi-chevron-down"></i> Advanced Options
+                                </button>
+                            </h6>
+                        </div>
+                        <div class="collapse" id="advancedOptions">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="output_template" class="form-label">Output Template</label>
+                                            <input type="text" class="form-control" id="output_template"
+                                                name="output_template" placeholder="{title}">
+                                            <div class="form-text">
+                                                Available variables: {title}, {author}, {series}, {narrator}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="output_format" class="form-label">Output Format</label>
+                                            <select class="form-select" id="output_format" name="output_format">
+                                                <option value="">Default</option>
+                                                <option value="m4b">M4B (Audiobook)</option>
+                                                <option value="mp3">MP3</option>
+                                                <option value="m4a">M4A</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="combine" name="combine">
+                                    <label class="form-check-label" for="combine">
+                                        Combine all files into a single file (requires ffmpeg)
+                                    </label>
+                                </div>
+
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="no_chapters" name="no_chapters">
+                                    <label class="form-check-label" for="no_chapters">
+                                        Don't include chapter information
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="bi bi-download"></i> Start Download
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Download Queue -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Download Queue</h5>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="clearCompleted">
+                    <i class="bi bi-trash"></i> Clear Completed
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="taskList">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox display-4"></i>
+                        <p class="mt-2">No downloads in queue</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/download.js"></script>
+{% endblock %}

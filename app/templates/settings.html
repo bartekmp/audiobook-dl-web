@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - audiobook-dl-web{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <h2 class="mb-4"><i class="bi bi-sliders"></i> Settings</h2>
+
+        {% if request.query_params.get('success') %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle"></i> Settings saved successfully!
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
+
+        <!-- Global Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Global audiobook-dl Settings</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" action="/settings">
+                    <div class="mb-3">
+                        <label for="output_template" class="form-label">Default Output Template</label>
+                        <input type="text" class="form-control" id="output_template" name="output_template"
+                            value="{{ config.output_template if config.output_template else '' }}"
+                            placeholder="{title}">
+                        <div class="form-text">
+                            Available variables: {title}, {author}, {series}, {narrator}<br>
+                            Example: {author}/{series}/{title}
+                        </div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="skip_downloaded" name="skip_downloaded" {%
+                            if config.skip_downloaded %}checked{% endif %}>
+                        <label class="form-check-label" for="skip_downloaded">
+                            Skip already downloaded books
+                        </label>
+                        <div class="form-text">
+                            audiobook-dl will check if a book has already been downloaded before starting
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="max_concurrent_downloads" class="form-label">Maximum Concurrent Downloads</label>
+                        <input type="number" class="form-control" id="max_concurrent_downloads" name="max_concurrent_downloads"
+                            value="{{ config.max_concurrent_downloads if config.max_concurrent_downloads else 2 }}"
+                            min="1" max="10" required>
+                        <div class="form-text">
+                            Number of audiobooks that can be downloaded simultaneously (1-10). Default is 2.
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> Save Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- System Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">System Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Configuration File:</dt>
+                    <dd class="col-sm-8">
+                        <code>{{ config_file_path }}</code>
+                    </dd>
+
+                    <dt class="col-sm-4">Downloads Directory:</dt>
+                    <dd class="col-sm-8">
+                        <code>{{ downloads_dir }}</code>
+                    </dd>
+
+                    <dt class="col-sm-4">Configured Services:</dt>
+                    <dd class="col-sm-8">
+                        {% if config.sources %}
+                        <span class="badge bg-success">{{ config.sources|length }}</span>
+                        {% else %}
+                        <span class="badge bg-secondary">0</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Configuration File Content -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Current Configuration (audiobook-dl.toml)</h5>
+            </div>
+            <div class="card-body">
+                {% if config %}
+                <pre class="bg-light p-3 rounded"><code>{% for key, value in config.items() %}{% if key == 'sources' %}[sources]
+{% for source_name, source_config in value.items() %}
+[sources.{{ source_name }}]
+{% for config_key, config_value in source_config.items() %}{% if config_key == 'password' %}{{ config_key }} = "********"
+{% else %}{{ config_key }} = "{{ config_value }}"
+{% endif %}{% endfor %}
+{% endfor %}{% else %}{{ key }} = "{{ value }}"
+{% endif %}{% endfor %}</code></pre>
+                {% else %}
+                <p class="text-muted mb-0">No configuration file found or it's empty</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

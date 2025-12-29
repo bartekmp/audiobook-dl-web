@@ -1,0 +1,36 @@
+services:
+  audiobook-dl-web:
+    build: .
+    container_name: audiobook-dl-web
+    ports:
+      - "8000:8000"
+    volumes:
+      # Configuration volume (stores audiobook-dl.toml and credentials)
+      - ./config:/app/config
+      # Downloads volume (stores downloaded audiobooks)
+      - ./downloads:/app/downloads
+      # Logs volume (stores application logs)
+      - ./logs:/app/logs
+    environment:
+      - CONFIG_DIR=/app/config
+      - DOWNLOADS_DIR=/app/downloads
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+      # Optional: Set a custom secret key for session management
+      - SECRET_KEY=change-this-to-a-random-secret-key-in-production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  config:
+    driver: local
+  downloads:
+    driver: local
+  logs:
+    driver: local
