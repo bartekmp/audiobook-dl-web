@@ -2,6 +2,13 @@
 
 
 
+## v0.0.2 (2025-12-29)
+
+### Fix
+
+* fix: use correct semrel output variable name ([`4bc0c69`](https://github.com/bartekmp/audiobook-dl-web/commit/4bc0c69233e8c7bba7f16397c9cf24c52bf658f2))
+
+
 ## v0.0.1 (2025-12-29)
 
 ### Fix
