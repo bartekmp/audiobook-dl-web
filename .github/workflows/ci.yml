@@ -45,8 +45,8 @@ jobs:
       contents: write
       packages: write
     outputs:
-      version: ${{ steps.semantic.outputs.new_release_version }}
-      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.semantic.outputs.version }}
+      new_release_published: ${{ steps.semantic.outputs.released }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -95,20 +95,20 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image (main branch with release)
-        if: github.ref == 'refs/heads/main' && steps.semantic.outputs.new_release_published == 'true'
+        if: github.ref == 'refs/heads/main' && steps.semantic.outputs.released == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semantic.outputs.new_release_version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semantic.outputs.version }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Build Docker image (main branch, no release)
-        if: github.ref == 'refs/heads/main' && steps.semantic.outputs.new_release_published != 'true'
+        if: github.ref == 'refs/heads/main' && steps.semantic.outputs.released != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
