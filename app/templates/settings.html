@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Settings - audiobook-dl-web{% endblock %}
+{% block title %}audiobook-dl-web - Settings{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -43,9 +43,23 @@
                         </div>
                     </div>
 
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="create_folder" name="create_folder" {% if
+                            config.create_folder %}checked{% endif %}>
+                        <label class="form-check-label" for="create_folder">
+                            Create folder for downloaded books
+                        </label>
+                        <div class="form-text">
+                            Each audiobook will be downloaded to a folder named using the "Default Output Template"
+                            (e.g., "{title} - {author}").
+                            Files will be saved inside this folder instead of directly in the downloads directory.
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label for="max_concurrent_downloads" class="form-label">Maximum Concurrent Downloads</label>
-                        <input type="number" class="form-control" id="max_concurrent_downloads" name="max_concurrent_downloads"
+                        <input type="number" class="form-control" id="max_concurrent_downloads"
+                            name="max_concurrent_downloads"
                             value="{{ config.max_concurrent_downloads if config.max_concurrent_downloads else 2 }}"
                             min="1" max="10" required>
                         <div class="form-text">

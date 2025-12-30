@@ -1,7 +1,25 @@
 // Download page functionality
 // Handles form submission, progress updates, and task management
 
+// Constants
+const STATUS_ICONS = {
+    pending: 'clock',
+    downloading: 'arrow-down-circle',
+    completed: 'check-circle',
+    failed: 'x-circle',
+    cancelled: 'dash-circle'
+};
+
+const STATUS_COLORS = {
+    pending: 'secondary',
+    downloading: 'primary',
+    completed: 'success',
+    failed: 'danger',
+    cancelled: 'warning'
+};
+
 let updateInterval = null;
+let collapsedTasks = new Set(); // Track which tasks are collapsed
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function () {
@@ -61,6 +79,11 @@ async function handleFormSubmit(e) {
         // Immediately load tasks to show the new downloads
         await loadTasks();
 
+        // Ensure polling is active for new downloads
+        if (!updateInterval) {
+            startPolling();
+        }
+
     } catch (error) {
         console.error('Error starting download:', error);
         showNotification('Failed to start downloads: ' + error.message, 'danger');
@@ -68,6 +91,9 @@ async function handleFormSubmit(e) {
 }
 
 // Load all tasks from the server
+let previousDownloadingCount = 0;
+let lastTasksJson = '';
+
 async function loadTasks() {
     try {
         const response = await fetch('/api/tasks');
@@ -77,7 +103,33 @@ async function loadTasks() {
         }
 
         const data = await response.json();
+
+        // Check if data actually changed
+        const currentTasksJson = JSON.stringify(data.tasks);
+        if (currentTasksJson === lastTasksJson) {
+            return; // No changes, skip update
+        }
+        lastTasksJson = currentTasksJson;
+
+        // Check if all downloads just finished
+        const downloadingCount = data.tasks.filter(t => t.status === 'downloading' || t.status === 'pending').length;
+        const completedCount = data.tasks.filter(t => t.status === 'completed').length;
+        const totalCount = data.tasks.length;
+
+        // If we had downloading tasks before and now none, and we have completed tasks
+        if (previousDownloadingCount > 0 && downloadingCount === 0 && completedCount > 0 && totalCount > 0) {
+            const failedCount = data.tasks.filter(t => t.status === 'failed').length;
+            const message = failedCount > 0
+                ? `All downloads finished! ${completedCount} completed, ${failedCount} failed.`
+                : `All downloads completed successfully! (${completedCount} total)`;
+            showNotification(message, failedCount > 0 ? 'warning' : 'success');
+        }
+
+        previousDownloadingCount = downloadingCount;
         displayTasks(data.tasks);
+
+        // Adjust polling based on active tasks
+        adjustPolling(downloadingCount);
 
     } catch (error) {
         console.error('Error loading tasks:', error);
@@ -154,71 +206,158 @@ function displayTasks(tasks) {
         return new Date(b.started_at || 0) - new Date(a.started_at || 0);
     });
 
-    taskList.innerHTML = tasks.map(task => createTaskCard(task)).join('');
+    // Add collapse all button and task cards
+    const collapseAllBtn = `
+        <div class="mb-3 d-flex justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary" id="toggleAllCards" onclick="toggleAllCards()">
+                <i class="bi bi-chevron-up"></i> Collapse All
+            </button>
+        </div>
+    `;
+
+    taskList.innerHTML = collapseAllBtn + tasks.map(task => createTaskCard(task)).join('');
+
+    // Restore collapse state after regenerating HTML
+    collapsedTasks.forEach(taskId => {
+        const card = document.querySelector(`[data-task-id="${taskId}"]`);
+        if (card) {
+            setTaskCollapsed(card, true);
+        }
+    });
+
+    // Update button state based on collapsed tasks
+    updateToggleAllButton();
+}
+
+// Update the toggle all button text based on state
+function updateToggleAllButton() {
+    const btn = document.getElementById('toggleAllCards');
+    if (btn) {
+        const hasCollapsed = collapsedTasks.size > 0;
+        btn.innerHTML = hasCollapsed
+            ? '<i class="bi bi-chevron-down"></i> Show All'
+            : '<i class="bi bi-chevron-up"></i> Collapse All';
+    }
+}
+
+// Set collapse state for a task card
+function setTaskCollapsed(card, collapsed) {
+    const detailsDiv = card.querySelector('.task-details');
+    const chevron = card.querySelector('.collapse-chevron');
+
+    detailsDiv.style.display = collapsed ? 'none' : 'block';
+    chevron.classList.toggle('bi-chevron-down', collapsed);
+    chevron.classList.toggle('bi-chevron-up', !collapsed);
+}
+
+// Toggle all task cards
+function toggleAllCards() {
+    const isExpanding = collapsedTasks.size > 0;
+
+    document.querySelectorAll('.task-card').forEach(card => {
+        const taskId = card.getAttribute('data-task-id');
+        setTaskCollapsed(card, !isExpanding);
+
+        if (isExpanding) {
+            collapsedTasks.delete(taskId);
+        } else {
+            collapsedTasks.add(taskId);
+        }
+    });
+
+    updateToggleAllButton();
+}
+
+// Toggle individual task card
+function toggleTaskCard(taskId) {
+    const card = document.querySelector(`[data-task-id="${taskId}"]`);
+    const isCollapsed = collapsedTasks.has(taskId);
+
+    setTaskCollapsed(card, !isCollapsed);
+
+    if (isCollapsed) {
+        collapsedTasks.delete(taskId);
+    } else {
+        collapsedTasks.add(taskId);
+    }
+}
+
+// Extract service name from URL
+function extractServiceName(url) {
+    try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname;
+        // Extract main domain (e.g., storytel.com -> storytel)
+        const parts = hostname.split('.');
+        if (parts.length >= 2) {
+            return parts[parts.length - 2].toUpperCase();
+        }
+        return hostname.toUpperCase();
+    } catch {
+        return 'UNKNOWN';
+    }
+}
+
+// Create progress bar HTML
+function createProgressBar(task) {
+    if (task.status !== 'downloading' && task.status !== 'completed') {
+        return '';
+    }
+
+    const progressWidth = task.status === 'completed' ? 100 : task.progress;
+    const color = STATUS_COLORS[task.status];
+    const animated = task.status === 'downloading' ? 'progress-bar-animated' : '';
+
+    return `
+        <div class="mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <small class="text-muted">Progress</small>
+                <small class="text-muted"><strong>${progressWidth}%</strong></small>
+            </div>
+            <div class="progress" style="height: 8px;">
+                <div class="progress-bar progress-bar-striped ${animated} bg-${color}"
+                     role="progressbar" style="width: ${progressWidth}%" 
+                     aria-valuenow="${progressWidth}" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+        </div>
+    `;
+}
+
+// Create error message HTML
+function createErrorDisplay(error) {
+    if (!error) return '';
+
+    const formattedError = escapeHtml(error).replace(/\n/g, '<br>');
+    return `
+        <div class="alert alert-danger mb-2">
+            <strong><i class="bi bi-exclamation-triangle"></i> Error:</strong><br>
+            <small style="white-space: pre-wrap;">${formattedError}</small>
+        </div>
+    `;
+}
+
+// Create file path display HTML
+function createFilePathDisplay(outputFile, status) {
+    if (!outputFile || status !== 'completed') return '';
+
+    return `
+        <div class="alert alert-info mt-2 mb-2 file-path-alert">
+            <div class="d-flex align-items-start">
+                <i class="bi bi-file-earmark-check fs-4 me-2 flex-shrink-0"></i>
+                <div class="flex-grow-1">
+                    <strong class="d-block mb-1">Downloaded File:</strong>
+                    <code class="file-path-code">${escapeHtml(outputFile)}</code>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 // Create HTML for a single task card
 function createTaskCard(task) {
-    const statusIcons = {
-        pending: 'clock',
-        downloading: 'arrow-down-circle',
-        completed: 'check-circle',
-        failed: 'x-circle',
-        cancelled: 'dash-circle'
-    };
-
-    const statusColors = {
-        pending: 'secondary',
-        downloading: 'primary',
-        completed: 'success',
-        failed: 'danger',
-        cancelled: 'warning'
-    };
-
-    const icon = statusIcons[task.status] || 'circle';
-    const color = statusColors[task.status] || 'secondary';
-
-    let progressBar = '';
-    if (task.status === 'downloading' || task.status === 'completed') {
-        const progressWidth = task.status === 'completed' ? 100 : task.progress;
-        progressBar = `
-            <div class="mb-2">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <small class="text-muted">Progress</small>
-                    <small class="text-muted"><strong>${progressWidth}%</strong></small>
-                </div>
-                <div class="progress" style="height: 8px;">
-                    <div class="progress-bar progress-bar-striped ${task.status === 'downloading' ? 'progress-bar-animated' : ''} bg-${color}"
-                         role="progressbar" style="width: ${progressWidth}%" 
-                         aria-valuenow="${progressWidth}" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-            </div>
-        `;
-    }
-
-    let errorMessage = '';
-    if (task.error) {
-        // Preserve line breaks and format error messages nicely
-        const formattedError = escapeHtml(task.error).replace(/\n/g, '<br>');
-        errorMessage = `
-            <div class="alert alert-danger mb-2">
-                <strong><i class="bi bi-exclamation-triangle"></i> Error:</strong><br>
-                <small style="white-space: pre-wrap;">${formattedError}</small>
-            </div>
-        `;
-    }
-
-    let outputFile = '';
-    if (task.output_file) {
-        outputFile = `
-            <div class="mt-2">
-                <small class="text-success">
-                    <i class="bi bi-file-earmark-check"></i> ${escapeHtml(task.output_file)}
-                </small>
-            </div>
-        `;
-    }
-
+    const icon = STATUS_ICONS[task.status] || 'circle';
+    const color = STATUS_COLORS[task.status] || 'secondary';
+    const serviceName = extractServiceName(task.url);
     const downloadingClass = task.status === 'downloading' ? 'downloading-indicator' : '';
 
     return `
@@ -226,9 +365,11 @@ function createTaskCard(task) {
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div class="flex-grow-1">
-                        <h6 class="mb-1">
+                        <h6 class="mb-1 d-flex align-items-center gap-2">
+                            <i class="bi bi-chevron-up collapse-chevron" onclick="toggleTaskCard('${task.task_id}')" style="cursor: pointer;" title="Collapse/Expand"></i>
                             <i class="bi bi-${icon} text-${color} ${downloadingClass}"></i>
                             <span class="status-badge badge bg-${color}">${task.status.toUpperCase()}</span>
+                            <span class="badge bg-secondary">${serviceName}</span>
                         </h6>
                         <p class="task-url mb-1 url-clickable" 
                            data-url="${escapeHtml(task.url)}" 
@@ -236,11 +377,16 @@ function createTaskCard(task) {
                            title="Click to re-add this URL to the download form">
                             ${escapeHtml(truncateUrl(task.url, 80))}
                         </p>
-                        <small class="text-muted">${escapeHtml(task.message)}</small>
+                        ${task.metadata ? createMetadataDisplay(task.metadata) : ''}
                     </div>
-                    <div class="d-flex gap-1">
+                    <div class="d-flex gap-1 task-actions">
                         ${task.status === 'downloading' ? `
                             <button class="btn btn-sm btn-outline-danger" onclick="cancelTask('${task.task_id}')" title="Cancel download">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        ` : ''}
+                        ${task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled' ? `
+                            <button class="btn btn-sm btn-outline-danger remove-task-btn" onclick="removeTask('${task.task_id}')" title="Remove from list">
                                 <i class="bi bi-x"></i>
                             </button>
                         ` : ''}
@@ -251,10 +397,13 @@ function createTaskCard(task) {
                         ` : ''}
                     </div>
                 </div>
-                ${progressBar}
-                ${errorMessage}
-                ${outputFile}
-                ${formatTimestamp(task)}
+                <div class="task-details">
+                    <small class="text-muted d-block mb-2">${escapeHtml(task.message)}</small>
+                    ${createProgressBar(task)}
+                    ${createErrorDisplay(task.error)}
+                    ${createFilePathDisplay(task.output_file, task.status)}
+                    ${formatTimestamp(task)}
+                </div>
             </div>
         </div>
     `;
@@ -280,46 +429,63 @@ async function cancelTask(taskId) {
     }
 }
 
-// Retry a failed download
-async function retryTask(url) {
-    const urlsTextarea = document.getElementById('urls');
-    if (urlsTextarea) {
-        // Add the URL to the textarea
-        const currentValue = urlsTextarea.value.trim();
-        urlsTextarea.value = currentValue ? currentValue + '\n' + url : url;
-
-        // Scroll to the form
-        urlsTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        // Highlight the textarea briefly
-        urlsTextarea.classList.add('highlight-input');
-        setTimeout(() => {
-            urlsTextarea.classList.remove('highlight-input');
-        }, 1500);
-
-        showNotification('URL added to download form. Click "Start Download" when ready.', 'info');
+// Create metadata display
+function createMetadataDisplay(metadata) {
+    if (!metadata || Object.keys(metadata).length === 0) {
+        return '';
     }
+
+    const items = [];
+
+    if (metadata.title) {
+        items.push(`<strong>${escapeHtml(metadata.title)}</strong>`);
+    }
+    if (metadata.author) {
+        items.push(`by ${escapeHtml(metadata.author)}`);
+    }
+    if (metadata.narrator) {
+        items.push(`narrated by ${escapeHtml(metadata.narrator)}`);
+    }
+    if (metadata.year) {
+        items.push(`(${escapeHtml(metadata.year)})`);
+    }
+    if (metadata.duration) {
+        items.push(`<i class="bi bi-clock"></i> ${escapeHtml(metadata.duration)}`);
+    }
+    if (metadata.size) {
+        items.push(`<i class="bi bi-file-earmark"></i> ${escapeHtml(metadata.size)}`);
+    }
+
+    return items.length > 0 ? `<div class="task-metadata mb-1"><small class="text-muted">${items.join(' • ')}</small></div>` : '';
+}
+
+// Add URL to input field with optional message
+function addUrlToInput(url, message = 'URL added to download form') {
+    const urlsTextarea = document.getElementById('urls');
+    if (!urlsTextarea) return;
+
+    // Add the URL to the textarea
+    const currentValue = urlsTextarea.value.trim();
+    urlsTextarea.value = currentValue ? currentValue + '\n' + url : url;
+
+    // Scroll to the form
+    urlsTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Highlight the textarea briefly
+    urlsTextarea.classList.add('highlight-input');
+    setTimeout(() => urlsTextarea.classList.remove('highlight-input'), 1500);
+
+    showNotification(message, 'info');
+}
+
+// Retry a failed download
+function retryTask(url) {
+    addUrlToInput(url, 'URL added to download form. Click "Start Download" when ready.');
 }
 
 // Copy URL to input field
 function copyUrlToInput(url) {
-    const urlsTextarea = document.getElementById('urls');
-    if (urlsTextarea) {
-        // Add the URL to the textarea
-        const currentValue = urlsTextarea.value.trim();
-        urlsTextarea.value = currentValue ? currentValue + '\n' + url : url;
-
-        // Scroll to the form
-        urlsTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        // Highlight the textarea briefly
-        urlsTextarea.classList.add('highlight-input');
-        setTimeout(() => {
-            urlsTextarea.classList.remove('highlight-input');
-        }, 1500);
-
-        showNotification('URL added to download form', 'success');
-    }
+    addUrlToInput(url, 'URL added to download form');
 }
 
 // Clear completed tasks
@@ -339,6 +505,26 @@ async function clearCompleted() {
     } catch (error) {
         console.error('Error clearing tasks:', error);
         showNotification('Failed to clear tasks', 'danger');
+    }
+}
+
+// Remove individual task
+async function removeTask(taskId) {
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to remove task');
+        }
+
+        showNotification('Task removed', 'info');
+        await loadTasks();
+
+    } catch (error) {
+        console.error('Error removing task:', error);
+        showNotification('Failed to remove task', 'danger');
     }
 }
 
@@ -371,6 +557,17 @@ function startPolling() {
     updateInterval = setInterval(async () => {
         await loadTasks();
     }, 2000);
+}
+
+// Adjust polling interval based on active tasks
+function adjustPolling(activeTaskCount) {
+    if (activeTaskCount === 0) {
+        // Stop polling when no active tasks
+        stopPolling();
+    } else if (!updateInterval) {
+        // Resume polling if we have active tasks but polling stopped
+        startPolling();
+    }
 }
 
 // Stop polling (cleanup)

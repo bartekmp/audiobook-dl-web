@@ -182,6 +182,12 @@ main {
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
 }
 
+/* Task actions - remove button always visible */
+.task-card .remove-task-btn {
+    opacity: 1;
+    transition: opacity 0.2s ease;
+}
+
 /* Responsive table for small screens */
 @media (max-width: 768px) {
     .table-responsive {
@@ -274,4 +280,35 @@ pre code {
 .empty-state i {
     font-size: 4rem;
     opacity: 0.5;
+}
+
+/* File path display */
+.file-path-alert {
+    background-color: #cfe2ff;
+    border-color: #9ec5fe;
+    color: #084298;
+}
+
+.file-path-code {
+    background-color: #ffffff;
+    color: #212529;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    display: block;
+    font-size: 0.875rem;
+    word-break: break-all;
+    border: 1px solid #dee2e6;
+}
+
+[data-bs-theme="dark"] .file-path-alert {
+    background-color: #052c65;
+    border-color: #084298;
+    color: #cfe2ff;
+}
+
+[data-bs-theme="dark"] .file-path-code {
+    background-color: #1a1a1a;
+    color: #b8b8b8;
+    border-color: #404040;
+    font-weight: 400;
 }

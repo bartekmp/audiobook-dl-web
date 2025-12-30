@@ -5,12 +5,16 @@ Handles audiobook downloads with progress tracking
 
 import asyncio
 import logging
-import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from app import output_processor
+
 logger = logging.getLogger(__name__)
+
+# Constants
+REMOVABLE_STATUSES = ["completed", "failed", "cancelled"]
 
 
 class DownloadStatus(Enum):
@@ -36,6 +40,14 @@ class DownloadTask:
         self.completed_at: datetime | None = None
         self.error: str | None = None
         self.output_file: str | None = None
+        self.metadata: dict | None = None
+
+    @property
+    def duration(self) -> float | None:
+        """Calculate task duration in seconds"""
+        if self.started_at and self.completed_at:
+            return (self.completed_at - self.started_at).total_seconds()
+        return None
 
     def to_dict(self) -> dict:
         """Convert task to dictionary for JSON serialization"""
@@ -49,6 +61,7 @@ class DownloadTask:
             "completed_at": (self.completed_at.isoformat() if self.completed_at else None),
             "error": self.error,
             "output_file": self.output_file,
+            "metadata": self.metadata,
         }
 
 
@@ -72,7 +85,7 @@ class DownloadManager:
         self._load_max_concurrent_downloads()
 
     def _load_max_concurrent_downloads(self):
-        """Load max concurrent downloads from config, default to 2"""
+        """Load max concurrent downloads and create_folder setting from config"""
         try:
             import tomllib
 
@@ -81,10 +94,13 @@ class DownloadManager:
                 with open(config_file, "rb") as f:
                     config = tomllib.load(f)
                     self.max_concurrent_downloads = config.get("max_concurrent_downloads", 2)
+                    self.create_folder = config.get("create_folder", False)
             else:
                 self.max_concurrent_downloads = 2
+                self.create_folder = False
         except Exception:
             self.max_concurrent_downloads = 2
+            self.create_folder = False
 
         # Ensure valid range (1-10)
         self.max_concurrent_downloads = max(1, min(10, self.max_concurrent_downloads))
@@ -153,41 +169,28 @@ class DownloadManager:
         task.started_at = datetime.now()
         task.message = "Starting download..."
 
-        logger.info(f"Download started - Task: {task.task_id}, URL: {task.url}")
-
         try:
-            # Build audiobook-dl command
-            cmd = [
-                "audiobook-dl",
-                "--config",
-                str(self.config_dir / "audiobook-dl.toml"),
-            ]
+            cmd = self._build_download_command(
+                task.url, output_template, combine, no_chapters, output_format
+            )
 
-            # Add output directory
-            if output_template:
-                output_path = str(self.downloads_dir / output_template)
-            else:
-                output_path = str(self.downloads_dir / "{title}")
+            logger.info(
+                f"Download started - Task: {task.task_id}, URL: {task.url}, Command: {' '.join(cmd)}"
+            )
 
-            cmd.extend(["-o", output_path])
+            # Execute command with unbuffered output
+            import os
 
-            # Add optional flags
-            if combine:
-                cmd.append("--combine")
-            if no_chapters:
-                cmd.append("--no-chapters")
-            if output_format:
-                cmd.extend(["--output-format", output_format])
-
-            # Add URL
-            cmd.append(task.url)
-
-            # Execute command
+            env = {
+                "PYTHONUNBUFFERED": "1",  # Force Python unbuffered output
+                "FORCE_COLOR": "0",  # Disable ANSI colors that might interfere
+            }
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.downloads_dir),
+                env={**os.environ, **env},  # Merge with existing env
             )
 
             stdout = process.stdout
@@ -195,30 +198,22 @@ class DownloadManager:
             if stdout is None or stderr is None:
                 raise RuntimeError("Failed to capture subprocess output streams")
 
-            # Read output and update progress
+            # Read output and update progress in real-time from both stdout and stderr
             stdout_lines = []
             stderr_lines = []
 
-            while True:
-                line = await stdout.readline()
-                if not line:
-                    break
+            # Callback to update task progress as lines come in
+            def on_line(line: str):
+                progress, message = output_processor.parse_progress_line(line, task.progress)
+                task.progress = progress
+                if message != task.message:
+                    task.message = message
 
-                line_text = line.decode("utf-8").strip()
-                stdout_lines.append(line_text)
-
-                # Update progress based on output
-                task.message = self._parse_progress(line_text, task)
-
-                # Extract percentage if available (e.g., from ffmpeg output)
-                percentage_match = re.search(r"(\d+)%", line_text)
-                if percentage_match:
-                    task.progress = int(percentage_match.group(1))
-
-            # Read stderr
-            stderr_data = await stderr.read()
-            if stderr_data:
-                stderr_lines = stderr_data.decode("utf-8").strip().split("\n")
+            # Run both readers concurrently
+            await asyncio.gather(
+                output_processor.read_process_stream(stdout, stdout_lines, on_line),
+                output_processor.read_process_stream(stderr, stderr_lines, on_line),
+            )
 
             # Wait for process to complete
             await process.wait()
@@ -229,41 +224,44 @@ class DownloadManager:
                 task.message = "Download completed successfully!"
                 task.completed_at = datetime.now()
 
-                duration = (task.completed_at - task.started_at).total_seconds()
-                logger.info(f"Download completed - Task: {task.task_id}, Duration: {duration:.1f}s")
+                # Try to find output file from captured output
+                task.output_file = output_processor.find_output_file_in_lines(
+                    stdout_lines + stderr_lines, self.downloads_dir
+                )
 
-                # Try to find output file
-                task.output_file = self._find_output_file(stdout_lines)
+                # If not found in output, try to find the most recently created file
+                if not task.output_file:
+                    task.output_file = output_processor.find_latest_audio_file(self.downloads_dir)
+
+                # Extract metadata from the file
+                if task.output_file:
+                    task.metadata = await output_processor.extract_audio_metadata(task.output_file)
+
+                log_msg = (
+                    f"Download completed - Task: {task.task_id}, Duration: {task.duration:.1f}s"
+                )
+                if task.output_file:
+                    log_msg += f", File: {task.output_file}"
+                logger.info(log_msg)
             else:
                 task.status = DownloadStatus.FAILED
                 task.progress = 0
                 task.message = "Download failed"
                 task.completed_at = datetime.now()
 
-                duration = (task.completed_at - task.started_at).total_seconds()
                 logger.error(
-                    f"Download failed - Task: {task.task_id}, Return code: {process.returncode}, Duration: {duration:.1f}s"
+                    f"Download failed - Task: {task.task_id}, Return code: {process.returncode}, "
+                    f"Duration: {task.duration:.1f}s"
                 )
-                # Format error message for better readability
+
+                # Log stderr output for debugging
                 if stderr_lines:
-                    # Clean up and format error messages
-                    formatted_errors = []
-                    for line in stderr_lines:
-                        line = line.strip()
-                        if line and not line.startswith("WARNING:"):
-                            # Split on common audiobook-dl error patterns
-                            if "ERROR:" in line:
-                                parts = line.split("ERROR:")
-                                for part in parts[1:]:  # Skip first empty part
-                                    formatted_errors.append(f"ERROR: {part.strip()}")
-                            elif line:
-                                formatted_errors.append(line)
-                    task.error = (
-                        "\n".join(formatted_errors) if formatted_errors else "Unknown error"
-                    )
-                else:
-                    task.error = "Unknown error"
-                task.completed_at = datetime.now()
+                    logger.error(f"Task {task.task_id} stderr output:")
+                    for line in stderr_lines[-20:]:  # Log last 20 lines
+                        if line.strip():
+                            logger.error(f"  {line}")
+
+                task.error = output_processor.format_error_messages(stderr_lines)
 
         except Exception as e:
             task.status = DownloadStatus.FAILED
@@ -271,79 +269,12 @@ class DownloadManager:
             task.error = str(e)
             task.completed_at = datetime.now()
 
-            if task.started_at:
-                duration = (task.completed_at - task.started_at).total_seconds()
-                logger.error(
-                    f"Download failed with exception - Task: {task.task_id}, Error: {str(e)}, Duration: {duration:.1f}s"
-                )
-            else:
-                logger.error(
-                    f"Download failed with exception - Task: {task.task_id}, Error: {str(e)}"
-                )
+            duration_msg = f", Duration: {task.duration:.1f}s" if task.duration else ""
+            logger.error(
+                f"Download failed with exception - Task: {task.task_id}, Error: {str(e)}{duration_msg}"
+            )
         finally:
             self.active_downloads -= 1
-
-    def _parse_progress(self, line: str, task: DownloadTask) -> str:
-        """
-        Parse progress message from audiobook-dl output and update task progress
-
-        Args:
-            line: Output line from audiobook-dl
-            task: The download task to update
-
-        Returns:
-            Formatted progress message
-        """
-        line_lower = line.lower()
-
-        # Update progress based on download stages
-        if "authenticating" in line_lower or "login" in line_lower:
-            task.progress = 10
-            return "Authenticating with service..."
-        elif "downloading" in line_lower or "download" in line_lower:
-            # If we see download, we're at least 20% through
-            if task.progress < 20:
-                task.progress = 20
-            # Gradually increase progress during download phase
-            elif task.progress < 70:
-                task.progress = min(task.progress + 5, 70)
-            return "Downloading audiobook files..."
-        elif "combining" in line_lower or "merge" in line_lower or "concat" in line_lower:
-            task.progress = 75
-            return "Combining audio files..."
-        elif "chapter" in line_lower:
-            task.progress = 85
-            return "Adding chapter information..."
-        elif "saving" in line_lower or "writing" in line_lower:
-            task.progress = 90
-            return "Saving audiobook..."
-        elif "complete" in line_lower or "finished" in line_lower or "done" in line_lower:
-            task.progress = 95
-            return "Finalizing..."
-        elif line:
-            # Show the actual output for transparency
-            return line[:100]  # Truncate long messages
-        return "Processing..."
-
-    def _find_output_file(self, stdout_lines: list[str]) -> str | None:
-        """
-        Try to find the output file from stdout
-
-        Args:
-            stdout_lines: Lines from stdout
-
-        Returns:
-            Relative path to output file or None
-        """
-        for line in reversed(stdout_lines):
-            # Look for common patterns that might indicate file paths
-            if any(ext in line.lower() for ext in [".m4b", ".mp3", ".m4a"]):
-                # Extract potential file path
-                parts = line.split()
-                for part in parts:
-                    if any(ext in part.lower() for ext in [".m4b", ".mp3", ".m4a"]):
-                        return part
-        return None
 
     def get_task(self, task_id: str) -> DownloadTask | None:
         """
@@ -384,17 +315,60 @@ class DownloadManager:
             return True
         return False
 
+    def remove_task(self, task_id: str) -> bool:
+        """
+        Remove a specific task from the task list
+
+        Args:
+            task_id: Task identifier
+
+        Returns:
+            True if removed, False if task not found or still active
+        """
+        task = self.tasks.get(task_id)
+        if task and task.status.value in REMOVABLE_STATUSES:
+            del self.tasks[task_id]
+            logger.info(f"Task removed - ID: {task_id}, Status: {task.status.value}")
+            return True
+        return False
+
     def clear_completed(self):
         """Clear all completed, failed, and cancelled tasks"""
         to_remove = [
             task_id
             for task_id, task in self.tasks.items()
-            if task.status
-            in [
-                DownloadStatus.COMPLETED,
-                DownloadStatus.FAILED,
-                DownloadStatus.CANCELLED,
-            ]
+            if task.status.value in REMOVABLE_STATUSES
         ]
         for task_id in to_remove:
             del self.tasks[task_id]
+
+    def _build_download_command(
+        self,
+        url: str,
+        output_template: str | None,
+        combine: bool,
+        no_chapters: bool,
+        output_format: str | None,
+    ) -> list[str]:
+        """Build audiobook-dl command with options"""
+        cmd = ["audiobook-dl", "--config", str(self.config_dir / "audiobook-dl.toml")]
+
+        # Determine output path
+        template = output_template or "{title}"
+        if self.create_folder:
+            output_path = str(self.downloads_dir / template / template)
+        else:
+            output_path = str(self.downloads_dir / template)
+
+        cmd.extend(["-o", output_path])
+
+        # Add optional flags
+        if combine:
+            cmd.append("--combine")
+        if no_chapters:
+            cmd.append("--no-chapters")
+        if output_format:
+            cmd.extend(["--output-format", output_format])
+
+        cmd.append(url)
+        return cmd
