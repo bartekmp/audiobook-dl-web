@@ -35,19 +35,21 @@ commit_message = "chore(release): {version} [skip ci]"
 
 [tool.semantic_release.commit_parser_options]
 allowed_tags = [
+    "bugfix",
     "build",
     "chore",
     "ci",
     "docs",
     "feat",
+    "feature",
     "fix",
     "perf",
     "style",
     "refactor",
     "test",
 ]
-minor_tags = ["feat"]
-patch_tags = ["fix", "perf"]
+minor_tags = ["feat", "feature"]
+patch_tags = ["fix", "perf", "bugfix"]
 
 [tool.semantic_release.changelog]
 exclude_commit_patterns = [
