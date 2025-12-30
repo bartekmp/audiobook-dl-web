@@ -3,8 +3,10 @@ FastAPI route handlers for audiobook-dl-web
 """
 
 import logging
+import tomllib
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -23,6 +25,35 @@ templates = Jinja2Templates(directory="app/templates")
 router = APIRouter()
 
 
+# Read version from pyproject.toml
+def get_app_version() -> str:
+    """Read application version from pyproject.toml"""
+    try:
+        pyproject_path = Path("pyproject.toml")
+        if pyproject_path.exists():
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+                return data.get("project", {}).get("version", "0.0.0")
+    except Exception:
+        pass
+    return "0.0.0"
+
+
+APP_VERSION = get_app_version()
+GITHUB_REPO = "https://github.com/bartekmp/audiobook-dl-web"
+
+
+def get_base_context(request: Request, config_manager) -> dict:
+    """Get base template context used across all pages"""
+    return {
+        "request": request,
+        "services": SUPPORTED_SERVICES,
+        "configured_services": config_manager.list_configured_sources(),
+        "version": APP_VERSION,
+        "github_repo": GITHUB_REPO,
+    }
+
+
 def init_routes(config_manager, download_manager, config_dir: str, downloads_dir: str):
     """
     Initialize routes with dependency injection
@@ -37,15 +68,7 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         """Home page"""
-        configured_services = config_manager.list_configured_sources()
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "services": SUPPORTED_SERVICES,
-                "configured_services": configured_services,
-            },
-        )
+        return templates.TemplateResponse("index.html", get_base_context(request, config_manager))
 
     @router.get("/configure", response_class=HTMLResponse)
     async def configure_page(request: Request, service: str | None = None):
@@ -53,25 +76,15 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
         if service and service not in SUPPORTED_SERVICES:
             raise HTTPException(status_code=404, detail="Service not found")
 
-        configured_services = config_manager.list_configured_sources()
-        selected_service = None
-        current_config = None
+        context = get_base_context(request, config_manager)
+        context["selected_service"] = None
+        context["current_config"] = None
 
         if service:
-            selected_service = SUPPORTED_SERVICES[service]
-            selected_service["id"] = service
-            current_config = config_manager.get_source_config(service)
+            context["selected_service"] = {**SUPPORTED_SERVICES[service], "id": service}
+            context["current_config"] = config_manager.get_source_config(service)
 
-        return templates.TemplateResponse(
-            "configure.html",
-            {
-                "request": request,
-                "services": SUPPORTED_SERVICES,
-                "configured_services": configured_services,
-                "selected_service": selected_service,
-                "current_config": current_config,
-            },
-        )
+        return templates.TemplateResponse("configure.html", context)
 
     @router.post("/configure/{service}")
     async def configure_service(
@@ -127,18 +140,11 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
     @router.get("/download", response_class=HTMLResponse)
     async def download_page(request: Request):
         """Download page where users can paste audiobook URLs"""
-        configured_services = config_manager.list_configured_sources()
-
-        if not configured_services:
+        if not config_manager.list_configured_sources():
             return RedirectResponse(url="/configure", status_code=status.HTTP_303_SEE_OTHER)
 
         return templates.TemplateResponse(
-            "download.html",
-            {
-                "request": request,
-                "services": SUPPORTED_SERVICES,
-                "configured_services": configured_services,
-            },
+            "download.html", get_base_context(request, config_manager)
         )
 
     @router.post("/api/download")
@@ -221,6 +227,16 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
 
         return JSONResponse(content={"status": "cancelled"})
 
+    @router.delete("/api/tasks/{task_id}")
+    async def remove_task(task_id: str):
+        """Remove a completed, failed, or cancelled task"""
+        success = download_manager.remove_task(task_id)
+
+        if not success:
+            raise HTTPException(status_code=400, detail="Cannot remove task")
+
+        return JSONResponse(content={"status": "removed"})
+
     @router.post("/api/tasks/clear")
     async def clear_completed_tasks():
         """Clear all completed, failed, and cancelled tasks"""
@@ -230,36 +246,33 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
     @router.get("/settings", response_class=HTMLResponse)
     async def settings_page(request: Request):
         """Settings page for global audiobook-dl options"""
-        config = config_manager.load_config()
+        context = get_base_context(request, config_manager)
+        context["config"] = config_manager.load_config()
+        context["config_file_path"] = config_manager.get_config_file_path()
+        context["downloads_dir"] = downloads_dir
 
-        return templates.TemplateResponse(
-            "settings.html",
-            {
-                "request": request,
-                "config": config,
-                "config_file_path": config_manager.get_config_file_path(),
-                "downloads_dir": downloads_dir,
-            },
-        )
+        return templates.TemplateResponse("settings.html", context)
 
     @router.post("/settings")
     async def update_settings(
         output_template: str | None = Form(None),
         skip_downloaded: bool = Form(False),
         max_concurrent_downloads: int = Form(2),
+        create_folder: bool = Form(False),
     ):
         """Update global settings"""
         success = config_manager.update_global_settings(
             output_template=output_template if output_template else None,
             skip_downloaded=skip_downloaded,
             max_concurrent_downloads=max_concurrent_downloads,
+            create_folder=create_folder,
         )
 
         if success:
             # Reload download manager config to apply new max concurrent downloads
             download_manager.reload_config()
             logger.info(
-                f"Settings updated - output_template: {output_template}, skip_downloaded: {skip_downloaded}, max_concurrent_downloads: {max_concurrent_downloads}"
+                f"Settings updated - output_template: {output_template}, skip_downloaded: {skip_downloaded}, max_concurrent_downloads: {max_concurrent_downloads}, create_folder: {create_folder}"
             )
             return RedirectResponse(
                 url="/settings?success=true", status_code=status.HTTP_303_SEE_OTHER

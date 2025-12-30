@@ -31,17 +31,21 @@ Open `http://localhost:8000`
 
 ⚠️ **Storytel users**: Add books to your shelf BEFORE downloading!
 
+![Home Page](docs/home-page.png)
+
 ## What Can You Do?
 
 **audiobook-dl-web** is a self-hosted web interface for [audiobook-dl](https://github.com/jo1gi/audiobook-dl), making it easy to download audiobooks from multiple services through your browser. Everything that audiobook-dl supports, this web interface supports too.
 
 **Configure Your Services**: Set up login credentials for any audiobook service supported by `audiobook-dl`, including Storytel, Saxo, Nextory, eReolen, Podimo, YourCloudLibrary, Everand, and more. Your credentials are stored securely in a local configuration file, so you only need to enter them once.
 
-**Manage Batch Downloads**: Paste multiple audiobook listening links (one per line) and download them all at once. The app handles concurrent downloads automatically and shows you real-time progress for each audiobook. You can start, monitor, and cancel downloads directly from the web interface.
+**Track Downloads in Real-Time**: Watch your audiobook downloads progress with live percentage updates that reflect actual download status. Each task shows detailed progress messages from authentication through file combining, with metadata automatically extracted when complete—including title, author, narrator, duration, and file size. Service badges identify which platform each audiobook comes from at a glance.
+
+**Manage Your Queue Efficiently**: Download multiple audiobooks simultaneously with configurable concurrency (1-10 downloads at once). Collapse individual downloads or the entire queue to stay focused on active items while keeping completed ones accessible. The interface maintains your collapsed state even as downloads update, keeping your workspace organized.
 
 **Customize Output Properties**: Configure how your audiobooks are saved—choose the output format (M4B, MP3, M4A), customize the file naming template with variables like `{author}/{series}/{title}`, decide whether to combine audio parts into a single file, and control chapter information. Set these options per-download or save them as global defaults.
 
-**Self-Host Anywhere**: Deploy with Docker for one-command setup, or run manually on any system with Python 3.14+. The responsive web interface works on desktop and mobile, with dark mode support and automatic status updates. All downloads are saved to your local storage, and comprehensive logging helps you track everything that happens.
+**Self-Host Anywhere**: Deploy with Docker for one-command setup, or run manually on any system with Python 3.14+. The responsive web interface works on desktop and mobile, with dark mode support optimized for readability. All downloads are saved to your local storage with full file paths displayed, and comprehensive logging helps you track everything that happens.
 
 ## Table of Contents
 
@@ -92,6 +96,59 @@ The Docker Compose configuration creates three important volumes:
 - `./logs` - Stores application logs with timestamps
 
 These directories are automatically created and persisted on your host machine.
+
+### TrueNAS CE Installation
+
+Deploy `audiobook-dl-web` as a custom app in TrueNAS Community Edition:
+
+#### 1. Prepare Storage
+
+Create datasets for the deployed app via the UI: **Datasets** → **Add Dataset** (create one parent `audiobook-dl-web` and three children datasets: `config`, `downloads`, `logs`), can be of `Generic` type.
+
+#### 2. Install Custom App
+
+1. Navigate to **Apps** → **Discover Apps** → **Custom App**
+2. Configure the following settings:
+
+**Application Name:**
+- Name: `audiobook-dl-web`
+
+**Container Images:**
+- Image Repository: `ghcr.io/bartekmp/audiobook-dl-web`
+- Image Tag: `<insert a specific version tag here>` (or `latest` for the newest version)
+- Pull Policy: `Always Pull Image`
+
+**Container Environment Variables:**
+- Add the following variables (click **Add** for each):
+  - Name: `CONFIG_DIR`, Value: `/app/config`
+  - Name: `DOWNLOADS_DIR`, Value: `/app/downloads`
+  - Name: `HOST`, Value: `0.0.0.0`
+  - Name: `PORT`, Value: `8000`
+  - Name: `DEBUG`, Value: `false`
+  - Name: `SECRET_KEY`, Value: `change-this-to-a-random-secret-key`
+
+**Networking:**
+- Host Network: Leave unchecked
+- Add Port:
+  - Container Port: `8000`
+  - Host Port: `8000`
+  - Protocol: `TCP`
+
+**Storage:**
+- Add three Host Path volumes (click **Add** for each):
+  1. Host Path: `/mnt/tank/audiobook-dl-web/config`, Mount Path: `/app/config`
+  2. Host Path: `/mnt/tank/audiobook-dl-web/downloads`, Mount Path: `/app/downloads`
+  3. Host Path: `/mnt/tank/audiobook-dl-web/logs`, Mount Path: `/app/logs`
+
+**Resources Configuration:**
+- CPU: `2` (2 CPUs) - adjust based on your needs
+- Memory: `2G` (2048 MiB / 2 GiB) - adjust based on your needs
+
+1. Click **Install**
+
+The application will be available at `http://your-truenas-ip:8000`
+
+> **Note:** The built-in health check in the Docker image will automatically monitor the application status in TrueNAS.
 
 ### Manual Installation
 
@@ -144,6 +201,8 @@ The application will be available at `http://localhost:8000`
 
 Your credentials are stored securely in `config/audiobook-dl.toml`.
 
+![Service Configuration](docs/service-config.png)
+
 ### 2. Download Audiobooks
 
 1. Navigate to **Download** in the menu
@@ -157,14 +216,23 @@ Your credentials are stored securely in `config/audiobook-dl.toml`.
 4. Click **Start Download**
 5. Monitor progress in the download queue
 
+![Download Queue](docs/downloads.png)
+
+**Failed downloads** are clearly marked with error details:
+
+![Failed Download](docs/failed-download.png)
+
 ### 3. Adjust Settings
 
 Navigate to **Settings** to configure:
 
 - **Default output template** - Customize where files are saved
 - **Skip already downloaded books** - Avoid re-downloading
+- **Create folder for downloaded books** - When enabled, each audiobook will be downloaded to a dedicated folder named using the output template (default: disabled)
 - **Maximum concurrent downloads** - Control how many audiobooks download simultaneously (1-10, default: 2)
 - View current configuration
+
+![Settings Page](docs/settings.png)
 
 ## Configuration
 
@@ -194,6 +262,8 @@ The configuration file (`config/audiobook-dl.toml`) stores service credentials a
 # Global settings
 output_template = "{author}/{title}"
 skip_downloaded = true
+create_folder = false
+max_concurrent_downloads = 2
 
 # Service credentials
 [sources.storytel]
@@ -235,6 +305,11 @@ Customize where audiobooks are saved using these variables:
 - `{author}/{title}` → `Author Name/Book Name.m4b`
 - `{author}/{series}/{title}` → `Author Name/Series Name/Book Name.m4b`
 
+**With "Create folder for downloaded books" enabled:**
+- Template: `{title}` → Folder: `Book Name/`, File: `Book Name.m4b`
+- Template: `{title} - {author}` → Folder: `Book Name - Author Name/`, File: `Book Name - Author Name.m4b`
+- This is useful when audiobooks consist of multiple files, keeping all parts organized in a dedicated folder
+
 ### Output Formats
 
 Supported output formats:
@@ -270,6 +345,7 @@ The application provides a REST API:
 - `GET /api/tasks` - Get all download tasks
 - `GET /api/tasks/{task_id}` - Get specific task status
 - `POST /api/tasks/{task_id}/cancel` - Cancel a task
+- `DELETE /api/tasks/{task_id}` - Remove a specific task
 - `POST /api/tasks/clear` - Clear completed tasks
 - `GET /settings` - Settings page
 - `POST /settings` - Update settings

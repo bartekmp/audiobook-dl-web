@@ -42,7 +42,7 @@ class ConfigManager:
                 config = tomllib.load(f)
             return config
         except Exception as e:
-            print(f"Error loading config: {e}")
+            logger.error(f"Error loading config: {e}")
             return {"sources": {}}
 
     def save_config(self, config: dict[str, Any]) -> bool:
@@ -60,7 +60,7 @@ class ConfigManager:
                 tomli_w.dump(config, f)
             return True
         except Exception as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"Error saving config: {e}")
             return False
 
     def get_source_config(self, source_name: str) -> dict[str, Any] | None:
@@ -103,17 +103,17 @@ class ConfigManager:
         if "sources" not in config:
             config["sources"] = {}
 
-        source_config = {}
-
-        if username:
-            source_config["username"] = username
-        if password:
-            source_config["password"] = password
-        if library:
-            source_config["library"] = library
-        if cookie_file:
-            # Store relative path
-            source_config["cookie_file"] = cookie_file
+        # Build source config from provided parameters
+        source_config = {
+            k: v
+            for k, v in {
+                "username": username,
+                "password": password,
+                "library": library,
+                "cookie_file": cookie_file,
+            }.items()
+            if v is not None
+        }
 
         config["sources"][source_name.lower()] = source_config
 
@@ -162,6 +162,7 @@ class ConfigManager:
         database_directory: str | None = None,
         skip_downloaded: bool | None = None,
         max_concurrent_downloads: int | None = None,
+        create_folder: bool | None = None,
     ) -> bool:
         """
         Update global audiobook-dl settings
@@ -171,25 +172,27 @@ class ConfigManager:
             database_directory: Database directory path
             skip_downloaded: Whether to skip already downloaded books
             max_concurrent_downloads: Maximum number of concurrent downloads
+            create_folder: Whether to create a folder for each downloaded audiobook
 
         Returns:
             True if successful, False otherwise
         """
         config = self.load_config()
 
+        # Update config with provided settings
+        updates = {
+            "output_template": output_template,
+            "database_directory": database_directory,
+            "skip_downloaded": skip_downloaded,
+            "max_concurrent_downloads": max_concurrent_downloads,
+            "create_folder": create_folder,
+        }
+
         changes = []
-        if output_template is not None:
-            config["output_template"] = output_template
-            changes.append(f"output_template={output_template}")
-        if database_directory is not None:
-            config["database_directory"] = database_directory
-            changes.append(f"database_directory={database_directory}")
-        if skip_downloaded is not None:
-            config["skip_downloaded"] = skip_downloaded
-            changes.append(f"skip_downloaded={skip_downloaded}")
-        if max_concurrent_downloads is not None:
-            config["max_concurrent_downloads"] = max_concurrent_downloads
-            changes.append(f"max_concurrent_downloads={max_concurrent_downloads}")
+        for key, value in updates.items():
+            if value is not None:
+                config[key] = value
+                changes.append(f"{key}={value}")
 
         result = self.save_config(config)
         if result and changes:
