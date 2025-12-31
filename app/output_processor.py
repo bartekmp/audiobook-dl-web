@@ -122,12 +122,16 @@ def find_output_file_in_lines(output_lines: list[str], downloads_dir: Path) -> s
     return None
 
 
-def find_latest_audio_file(downloads_dir: Path) -> str | None:
+def find_latest_audio_file(
+    downloads_dir: Path, min_mtime: float = 0.0, search_dir: Path | None = None
+) -> str | None:
     """
     Find the most recently modified audio file in downloads directory
 
     Args:
-        downloads_dir: Directory to search
+        downloads_dir: Base downloads directory
+        min_mtime: Minimum modification time (Unix timestamp) to filter files
+        search_dir: Specific subdirectory to search (if None, searches entire downloads_dir)
 
     Returns:
         Full absolute path to most recent file or None
@@ -136,13 +140,17 @@ def find_latest_audio_file(downloads_dir: Path) -> str | None:
         latest_file = None
         latest_time = 0
 
+        # Use specific search directory if provided, otherwise search all
+        base_search = search_dir if search_dir and search_dir.exists() else downloads_dir
+
         # Walk through downloads directory
-        for root, _, files in os.walk(downloads_dir):
+        for root, _, files in os.walk(base_search):
             for file in files:
                 if any(file.lower().endswith(ext) for ext in AUDIO_EXTENSIONS):
                     file_path = Path(root) / file
                     mtime = file_path.stat().st_mtime
-                    if mtime > latest_time:
+                    # Only consider files created after min_mtime
+                    if mtime > max(latest_time, min_mtime):
                         latest_time = mtime
                         latest_file = file_path
 

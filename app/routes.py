@@ -51,6 +51,7 @@ def get_base_context(request: Request, config_manager) -> dict:
         "configured_services": config_manager.list_configured_sources(),
         "version": APP_VERSION,
         "github_repo": GITHUB_REPO,
+        "cache_bust": APP_VERSION.replace(".", ""),  # For static file cache busting
     }
 
 
