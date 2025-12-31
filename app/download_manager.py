@@ -5,6 +5,7 @@ Handles audiobook downloads with progress tracking
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -15,6 +16,24 @@ logger = logging.getLogger(__name__)
 
 # Constants
 REMOVABLE_STATUSES = ["completed", "failed", "cancelled"]
+
+
+def sanitize_path_component(path: str) -> str:
+    r"""
+    Sanitize path component by removing/replacing invalid filesystem characters.
+
+    Windows doesn't allow: < > : " / \ | ? *
+    Also removes leading/trailing spaces and dots
+    """
+    # Replace invalid characters with underscores
+    sanitized = re.sub(r'[<>:"/\\|?*]', "_", path)
+    # Remove control characters (0-31)
+    sanitized = re.sub(r"[\x00-\x1f]", "", sanitized)
+    # Remove leading/trailing spaces and dots
+    sanitized = sanitized.strip(". ")
+    # Collapse multiple spaces/underscores
+    sanitized = re.sub(r"[_\s]+", " ", sanitized)
+    return sanitized or "unnamed"
 
 
 class DownloadStatus(Enum):
@@ -355,10 +374,19 @@ class DownloadManager:
 
         # Determine output path
         template = output_template or "{title}"
+
+        # Sanitize template parts that are not variables (outside of {})
+        # Variables like {title}, {author} are handled by audiobook-dl
+        # Split into parts, keeping {...} patterns intact
+        parts = re.split(r"(\{[^}]+\})", template)
+        sanitized_template = "".join(
+            part if part.startswith("{") else sanitize_path_component(part) for part in parts
+        )
+
         if self.create_folder:
-            output_path = str(self.downloads_dir / template / template)
+            output_path = str(self.downloads_dir / sanitized_template / sanitized_template)
         else:
-            output_path = str(self.downloads_dir / template)
+            output_path = str(self.downloads_dir / sanitized_template)
 
         cmd.extend(["-o", output_path])
 
