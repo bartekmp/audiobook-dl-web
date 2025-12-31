@@ -1,32 +1,80 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "timezone": "Europe/Warsaw",
+  "reviewers": ["bartekmp"],
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "group:allNonMajor",
+    ":automergePr",
+    ":automergeMinor",
+    ":combinePatchMinorReleases",
+    ":semanticCommits",
+    ":disableDependencyDashboard",
+    "schedule:weekly"
   ],
   "packageRules": [
     {
+      "matchManagers": ["github-actions"],
+      "enabled": true,
+      "pinDigests": true,
+      "automerge": true
+    },
+    {
       "matchDatasources": ["pypi"],
-      "rangeStrategy": "bump"
+      "rangeStrategy": "bump",
+      "minimumReleaseAge": "3 days"
     },
     {
       "matchManagers": ["dockerfile"],
       "rangeStrategy": "pin"
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "labels": ["major update"],
+      "prPriority": 10,
+      "automerge": false,
+      "groupName": null
+    },
+    {
+      "matchPackageNames": ["python"],
+      "matchManagers": ["dockerfile"],
+      "enabled": true,
+      "automerge": false
+    },
+    {
+      "matchPackagePatterns": ["^fastapi", "^uvicorn", "^pydantic"],
+      "groupName": "FastAPI ecosystem",
+      "automerge": false
     }
   ],
-  "schedule": [
-    "after 10pm every weekday",
-    "before 5am every weekday",
-    "every weekend"
-  ],
+  "schedule": ["before 7am on the first day of the month"],
   "labels": ["dependencies"],
   "commitMessagePrefix": "chore(deps):",
+  "prCreation": "immediate",
   "prHourlyLimit": 2,
   "prConcurrentLimit": 10,
+  "rebaseWhen": "behind-base-branch",
+  "stopUpdatingLabel": "renovate-stop",
   "semanticCommits": "enabled",
   "separateMajorMinor": true,
   "separateMinorPatch": false,
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security"]
-  }
+    "labels": ["security"],
+    "automerge": false,
+    "prPriority": 20
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["before 7am on the first day of the month"]
+  },
+  "ignorePaths": ["**/node_modules/**", "**/bower_components/**"],
+  "enabledManagers": ["dockerfile", "github-actions", "pip_requirements", "pip_setup"]
 }
