@@ -2,6 +2,13 @@
 
 
 
+## v0.2.1 (2025-12-31)
+
+### Fix
+
+* fix: ignore empty parts of sanitized output names (#3) ([`7f6a5ac`](https://github.com/bartekmp/audiobook-dl-web/commit/7f6a5acb02d02a83d88bb068270e24927ec61745))
+
+
 ## v0.2.0 (2025-12-31)
 
 ### Feature
