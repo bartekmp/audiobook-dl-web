@@ -1,6 +1,6 @@
 [project]
 name = "audiobook-dl-web"
-version = "0.1.0"
+version = "0.2.0"
 description = "Web interface for audiobook-dl with authentication and download management"
 requires-python = ">=3.14"
 

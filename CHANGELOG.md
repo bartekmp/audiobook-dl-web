@@ -2,6 +2,19 @@
 
 
 
+## v0.2.0 (2025-12-31)
+
+### Feature
+
+* feature: cache busting (#2)
+
+* feature: add cache busting to avoid using old front files
+
+* fix: sanitize folder names
+
+* fix: match proper file for metadata retrieval ([`4568a66`](https://github.com/bartekmp/audiobook-dl-web/commit/4568a666159931128307d88b37bac704c1b382d5))
+
+
 ## v0.1.0 (2025-12-30)
 
 ### Feature
