@@ -244,6 +244,9 @@ async def extract_audio_metadata(file_path: str) -> dict | None:
 
                 return metadata if metadata else None
 
+    except FileNotFoundError:
+        logger.warning("ffprobe command not found - install FFmpeg to enable metadata extraction")
+        return None
     except Exception as e:
         logger.error(f"Error extracting metadata: {e}")
     return None

@@ -93,6 +93,7 @@ async function handleFormSubmit(e) {
 // Load all tasks from the server
 let previousDownloadingCount = 0;
 let lastTasksJson = '';
+let metadataWaitStart = null; // Track when we started waiting for metadata
 
 async function loadTasks() {
     try {
@@ -123,13 +124,23 @@ async function loadTasks() {
                 ? `All downloads finished! ${completedCount} completed, ${failedCount} failed.`
                 : `All downloads completed successfully! (${completedCount} total)`;
             showNotification(message, failedCount > 0 ? 'warning' : 'success');
+
+            // Start tracking time for metadata extraction
+            if (!metadataWaitStart) {
+                metadataWaitStart = Date.now();
+            }
+        }
+
+        // Reset timer if downloads are active
+        if (downloadingCount > 0) {
+            metadataWaitStart = null;
         }
 
         previousDownloadingCount = downloadingCount;
         displayTasks(data.tasks);
 
         // Adjust polling based on active tasks
-        adjustPolling(downloadingCount);
+        adjustPolling(downloadingCount, data.tasks);
 
     } catch (error) {
         console.error('Error loading tasks:', error);
@@ -560,10 +571,26 @@ function startPolling() {
 }
 
 // Adjust polling interval based on active tasks
-function adjustPolling(activeTaskCount) {
-    if (activeTaskCount === 0) {
-        // Stop polling when no active tasks
+function adjustPolling(activeTaskCount, tasks = []) {
+    // Check if any completed tasks are missing metadata
+    const completedWithoutMetadata = tasks.some(task =>
+        task.status === 'completed' && !task.metadata
+    );
+
+    // Stop polling if:
+    // 1. No active tasks AND no missing metadata, OR
+    // 2. We've been waiting for metadata for more than 30 seconds
+    const metadataTimeout = metadataWaitStart && (Date.now() - metadataWaitStart > 30000);
+
+    if (metadataTimeout) {
+        console.log('Metadata extraction timeout reached, stopping polling');
+        metadataWaitStart = null;
+    }
+
+    if (activeTaskCount === 0 && (!completedWithoutMetadata || metadataTimeout)) {
+        // Stop polling when no active tasks and all completed tasks have metadata (or timeout)
         stopPolling();
+        metadataWaitStart = null;
     } else if (!updateInterval) {
         // Resume polling if we have active tasks but polling stopped
         startPolling();

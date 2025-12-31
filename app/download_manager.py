@@ -95,8 +95,8 @@ class DownloadManager:
             config_dir: Directory containing audiobook-dl.toml
             downloads_dir: Directory where audiobooks will be downloaded
         """
-        self.config_dir = Path(config_dir)
-        self.downloads_dir = Path(downloads_dir)
+        self.config_dir = Path(config_dir).resolve()
+        self.downloads_dir = Path(downloads_dir).resolve()
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
         self.tasks: dict[str, DownloadTask] = {}
@@ -264,7 +264,12 @@ class DownloadManager:
 
                 # Extract metadata from the file
                 if task.output_file:
+                    logger.info(f"Extracting metadata for: {task.output_file}")
                     task.metadata = await output_processor.extract_audio_metadata(task.output_file)
+                    if task.metadata:
+                        logger.info(f"Metadata extracted: {list(task.metadata.keys())}")
+                    else:
+                        logger.warning(f"No metadata extracted for: {task.output_file}")
 
                 log_msg = (
                     f"Download completed - Task: {task.task_id}, Duration: {task.duration:.1f}s"
@@ -390,7 +395,8 @@ class DownloadManager:
         # Split into parts, keeping {...} patterns intact
         parts = re.split(r"(\{[^}]+\})", template)
         sanitized_template = "".join(
-            part if part.startswith("{") else sanitize_path_component(part) for part in parts
+            part if (not part or part.startswith("{")) else sanitize_path_component(part)
+            for part in parts
         )
 
         if self.create_folder:
