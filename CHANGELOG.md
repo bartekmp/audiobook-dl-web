@@ -2,6 +2,13 @@
 
 
 
+## v0.2.2 (2025-12-31)
+
+### Fix
+
+* fix: renovate config improvement ([`9225eb8`](https://github.com/bartekmp/audiobook-dl-web/commit/9225eb8d585f1eb788526a2ebbcf5a9d12fd0ef6))
+
+
 ## v0.2.1 (2025-12-31)
 
 ### Fix
