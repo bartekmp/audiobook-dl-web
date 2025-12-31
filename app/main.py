@@ -50,8 +50,19 @@ Path(DOWNLOADS_DIR).mkdir(parents=True, exist_ok=True)
 Path("app/static").mkdir(parents=True, exist_ok=True)
 Path("app/templates").mkdir(parents=True, exist_ok=True)
 
-# Setup static files
+# Setup static files with cache control
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+# Add cache control headers for static files
+@app.middleware("http")
+async def add_cache_control_headers(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        # Cache static files for 1 hour, but revalidate
+        response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+    return response
+
 
 # Initialize managers
 config_manager = ConfigManager(CONFIG_DIR)
