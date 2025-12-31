@@ -248,9 +248,19 @@ class DownloadManager:
                     stdout_lines + stderr_lines, self.downloads_dir
                 )
 
-                # If not found in output, try to find the most recently created file
-                if not task.output_file:
-                    task.output_file = output_processor.find_latest_audio_file(self.downloads_dir)
+                # If not found in output, search for files created after task started
+                if not task.output_file and task.started_at:
+                    # Determine search directory based on create_folder setting
+                    search_dir = None
+                    if self.create_folder and output_template:
+                        # Extract the first variable value if possible from sanitized template
+                        # For now, just search in downloads_dir since we can't know the expanded template
+                        search_dir = self.downloads_dir
+
+                    min_time = task.started_at.timestamp()
+                    task.output_file = output_processor.find_latest_audio_file(
+                        self.downloads_dir, min_mtime=min_time, search_dir=search_dir
+                    )
 
                 # Extract metadata from the file
                 if task.output_file:
