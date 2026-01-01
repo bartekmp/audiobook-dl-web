@@ -129,15 +129,20 @@ def find_output_file_in_lines(output_lines: list[str], downloads_dir: Path) -> s
     found_paths = []
 
     for line in reversed(output_lines):
-        line_lower = line.lower()
         line_clean = strip_ansi_codes(line)
+        line_clean_lower = line_clean.lower()
 
         # Check for explicit save/output messages first
         for keyword in SAVE_KEYWORDS:
-            if keyword in line_lower:
-                # Extract everything after the keyword
-                idx = line_lower.index(keyword) + len(keyword)
-                potential_path = line_clean[idx:].strip().strip("'\"")
+            if keyword in line_clean_lower:
+                # Extract everything after the keyword (from the same cleaned string).
+                idx = line_clean_lower.index(keyword) + len(keyword)
+                potential_path = (
+                    line_clean[idx:]
+                    .lstrip(" \t:-")
+                    .strip()
+                    .strip("'\"")
+                )
 
                 # Check if it has an audio extension
                 if any(potential_path.lower().endswith(ext) for ext in AUDIO_EXTENSIONS):
@@ -146,10 +151,10 @@ def find_output_file_in_lines(output_lines: list[str], downloads_dir: Path) -> s
 
         # Also look for lines that just contain file paths with audio extensions
         # (some tools just print the path without a prefix)
-        if not found_paths and any(ext in line_lower for ext in AUDIO_EXTENSIONS):
+        if not found_paths and any(ext in line_clean_lower for ext in AUDIO_EXTENSIONS):
             # Fallback: Look for any line containing audio file extensions
             for ext in AUDIO_EXTENSIONS:
-                if ext.lower() in line_lower:
+                if ext.lower() in line_clean_lower:
                     # Try to extract a file path
                     # Look for patterns like: /path/to/file.mp3 or C:\path\to\file.mp3
                     patterns = [
