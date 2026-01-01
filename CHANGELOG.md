@@ -2,6 +2,23 @@
 
 
 
+## v0.3.0 (2026-01-01)
+
+### Feature
+
+* feature: metadata improvements, unit tests, grouping downloads by author (#5)
+
+* fix: concurrent downloads mixing outputs by using separate task-dependent directories
+fix: deterministic output parsing
+fix: preserve exact output format pattern after sanitization
+feature: grouping downloads by author setting
+feature: improve metadata extraction
+
+* feature: add unit tests
+
+* fix: format code ([`5e7ea83`](https://github.com/bartekmp/audiobook-dl-web/commit/5e7ea8382772664564123d430068d7f951ebd4ca))
+
+
 ## v0.2.2 (2025-12-31)
 
 ### Fix
