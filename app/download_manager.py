@@ -6,6 +6,7 @@ Handles audiobook downloads with progress tracking
 import asyncio
 import logging
 import re
+import shutil
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -36,6 +37,20 @@ def sanitize_path_component(path: str) -> str:
     return sanitized or "unnamed"
 
 
+def sanitize_template_literal(literal: str) -> str:
+    """Sanitize only the literal parts of the output template.
+
+    This is intentionally less aggressive than `sanitize_path_component`:
+    - Keeps spaces/hyphens exactly as written (e.g. " - ")
+    - Only removes characters that are invalid in Windows paths and control chars
+
+    The `{variables}` are expanded by audiobook-dl.
+    """
+    sanitized = re.sub(r'[<>:"/\\|?*]', "_", literal)
+    sanitized = re.sub(r"[\x00-\x1f]", "", sanitized)
+    return sanitized
+
+
 class DownloadStatus(Enum):
     """Download status enumeration"""
 
@@ -60,6 +75,7 @@ class DownloadTask:
         self.error: str | None = None
         self.output_file: str | None = None
         self.metadata: dict | None = None
+        self.expected_output_dir: Path | None = None  # Track expected output directory
 
     @property
     def duration(self) -> float | None:
@@ -101,32 +117,40 @@ class DownloadManager:
 
         self.tasks: dict[str, DownloadTask] = {}
         self.active_downloads = 0
-        self._load_max_concurrent_downloads()
+        self._load_config()
 
-    def _load_max_concurrent_downloads(self):
-        """Load max concurrent downloads and create_folder setting from config"""
+    def _read_config(self) -> dict:
+        """Read configuration from audiobook-dl.toml file
+
+        Returns:
+            Configuration dictionary or empty dict if file doesn't exist or can't be read
+        """
         try:
             import tomllib
 
             config_file = self.config_dir / "audiobook-dl.toml"
             if config_file.exists():
                 with open(config_file, "rb") as f:
-                    config = tomllib.load(f)
-                    self.max_concurrent_downloads = config.get("max_concurrent_downloads", 2)
-                    self.create_folder = config.get("create_folder", False)
-            else:
-                self.max_concurrent_downloads = 2
-                self.create_folder = False
-        except Exception:
-            self.max_concurrent_downloads = 2
-            self.create_folder = False
+                    return tomllib.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read config file: {e}")
+        return {}
+
+    def _load_config(self):
+        """Load configuration settings from config file"""
+        config = self._read_config()
+
+        self.max_concurrent_downloads = config.get("max_concurrent_downloads", 2)
+        self.create_folder = config.get("create_folder", False)
+        self.group_by_author = config.get("group_by_author", False)
+        self.default_output_template = config.get("output_template", "{title}")
 
         # Ensure valid range (1-10)
         self.max_concurrent_downloads = max(1, min(10, self.max_concurrent_downloads))
 
     def reload_config(self):
         """Reload configuration settings from config file"""
-        self._load_max_concurrent_downloads()
+        self._load_config()
 
     async def add_download(
         self,
@@ -189,8 +213,19 @@ class DownloadManager:
         task.message = "Starting download..."
 
         try:
+            # Use a per-task staging directory so concurrent tasks can never
+            # claim each other's output by "newest file" heuristics.
+            task_base_dir = self.downloads_dir / f"__task_{task.task_id}__"
+            task_base_dir.mkdir(parents=True, exist_ok=True)
+            task.expected_output_dir = task_base_dir
+
             cmd = self._build_download_command(
-                task.url, output_template, combine, no_chapters, output_format
+                task.url,
+                output_template,
+                combine,
+                no_chapters,
+                output_format,
+                base_dir=task_base_dir,
             )
 
             logger.info(
@@ -243,24 +278,59 @@ class DownloadManager:
                 task.message = "Download completed successfully!"
                 task.completed_at = datetime.now()
 
+                # Keep search root within this task's staging directory for deterministic
+                # file detection, then unwrap/move after we've identified the output.
+                search_root = task.expected_output_dir or self.downloads_dir
+
                 # Try to find output file from captured output
+                logger.info(
+                    f"Task {task.task_id}: Captured {len(stdout_lines)} stdout lines, "
+                    f"{len(stderr_lines)} stderr lines"
+                )
+
+                # First try to parse the exact file path from tool output.
                 task.output_file = output_processor.find_output_file_in_lines(
                     stdout_lines + stderr_lines, self.downloads_dir
                 )
 
+                if task.output_file:
+                    logger.info(f"Task {task.task_id}: Found file in output: {task.output_file}")
+
                 # If not found in output, search for files created after task started
                 if not task.output_file and task.started_at:
-                    # Determine search directory based on create_folder setting
-                    search_dir = None
-                    if self.create_folder and output_template:
-                        # Extract the first variable value if possible from sanitized template
-                        # For now, just search in downloads_dir since we can't know the expanded template
-                        search_dir = self.downloads_dir
-
                     min_time = task.started_at.timestamp()
-                    task.output_file = output_processor.find_latest_audio_file(
-                        self.downloads_dir, min_mtime=min_time, search_dir=search_dir
-                    )
+
+                    # With per-task staging dirs, we can deterministically search only within the
+                    # task's own output tree (staging dir or the moved-to target).
+                    # This works for both "single file" (file directly in a folder) and multi-file.
+                    if isinstance(search_root, Path) and search_root.exists() and search_root.is_file():
+                        task.output_file = output_processor.normalize_path(search_root)
+                    else:
+                        task.output_file = output_processor.find_latest_audio_file(
+                            self.downloads_dir,
+                            min_mtime=min_time,
+                            search_dir=search_root if isinstance(search_root, Path) else self.downloads_dir,
+                        )
+
+                    if not task.output_file:
+                        logger.warning(
+                            f"Task {task.task_id}: No audio file found under search root: {search_root}"
+                        )
+
+                    if task.output_file:
+                        logger.info(
+                            f"Task {task.task_id}: Found file by timestamp search: {task.output_file}"
+                        )
+
+                # Unwrap staging directory into the main downloads folder (merge-safe).
+                # Also update `task.output_file` to the new location when possible.
+                if task.expected_output_dir and task.expected_output_dir.exists():
+                    try:
+                        task.output_file, search_root = self._unwrap_staging_dir(
+                            task.expected_output_dir, task.output_file
+                        )
+                    except Exception as e:
+                        logger.warning(f"Task {task.task_id}: Failed to unwrap staging dir: {e}")
 
                 # Extract metadata from the file
                 if task.output_file:
@@ -383,26 +453,32 @@ class DownloadManager:
         combine: bool,
         no_chapters: bool,
         output_format: str | None,
+        base_dir: Path,
     ) -> list[str]:
         """Build audiobook-dl command with options"""
         cmd = ["audiobook-dl", "--config", str(self.config_dir / "audiobook-dl.toml")]
 
-        # Determine output path
-        template = output_template or "{title}"
+        # Determine output path - use provided template or fall back to config default
+        template = output_template if output_template is not None else self.default_output_template
 
         # Sanitize template parts that are not variables (outside of {})
         # Variables like {title}, {author} are handled by audiobook-dl
         # Split into parts, keeping {...} patterns intact
         parts = re.split(r"(\{[^}]+\})", template)
         sanitized_template = "".join(
-            part if (not part or part.startswith("{")) else sanitize_path_component(part)
+            part if (not part or part.startswith("{")) else sanitize_template_literal(part)
             for part in parts
         )
 
+        effective_base_dir = base_dir
+        if getattr(self, "group_by_author", False):
+            # Let audiobook-dl expand {author} and handle its own sanitization.
+            effective_base_dir = base_dir / "{author}"
+
         if self.create_folder:
-            output_path = str(self.downloads_dir / sanitized_template / sanitized_template)
+            output_path = str(effective_base_dir / sanitized_template / sanitized_template)
         else:
-            output_path = str(self.downloads_dir / sanitized_template)
+            output_path = str(effective_base_dir / sanitized_template)
 
         cmd.extend(["-o", output_path])
 
@@ -416,3 +492,90 @@ class DownloadManager:
 
         cmd.append(url)
         return cmd
+
+    def _unique_destination(self, dest: Path) -> Path:
+        """Return a non-existing destination path by appending a numeric suffix."""
+        if not dest.exists():
+            return dest
+
+        stem = dest.stem
+        suffix = dest.suffix
+        parent = dest.parent
+
+        for i in range(2, 10_000):
+            candidate = parent / f"{stem} ({i}){suffix}"
+            if not candidate.exists():
+                return candidate
+        # Fallback (should be extremely unlikely)
+        return parent / f"{stem} (copy){suffix}"
+
+    def _merge_dir_contents(self, src_dir: Path, dest_dir: Path) -> dict[Path, Path]:
+        """Move top-level children from src_dir into dest_dir. Returns mapping of moved children."""
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        moved: dict[Path, Path] = {}
+
+        for child in src_dir.iterdir():
+            target_child = dest_dir / child.name
+            if target_child.exists():
+                target_child = self._unique_destination(target_child)
+            shutil.move(str(child), str(target_child))
+            moved[child] = target_child
+
+        return moved
+
+    def _unwrap_staging_dir(
+        self, staging_dir: Path, output_file: str | None
+    ) -> tuple[str | None, Path]:
+        """Move results from staging_dir into downloads_dir, merging if necessary.
+
+        Returns updated (output_file, search_root).
+        """
+        entries = list(staging_dir.iterdir())
+        if len(entries) != 1:
+            return output_file, staging_dir
+
+        entry = entries[0]
+        target = self.downloads_dir / entry.name
+
+        old_output_path: Path | None = None
+        if output_file:
+            try:
+                old_output_path = Path(output_file)
+            except Exception:
+                old_output_path = None
+
+        if entry.is_dir():
+            if not target.exists():
+                shutil.move(str(entry), str(target))
+                shutil.rmtree(staging_dir, ignore_errors=True)
+
+                if old_output_path and old_output_path.is_relative_to(entry):
+                    new_output = target / old_output_path.relative_to(entry)
+                    return output_processor.normalize_path(new_output), target
+                return output_file, target
+
+            if not target.is_dir():
+                # Destination exists but isn't a directory; keep staging
+                return output_file, staging_dir
+
+            moved_map = self._merge_dir_contents(entry, target)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+            if old_output_path and old_output_path.is_relative_to(entry):
+                rel = old_output_path.relative_to(entry)
+                top = entry / rel.parts[0]
+                new_top = moved_map.get(top)
+                if new_top:
+                    new_output = new_top.joinpath(*rel.parts[1:])
+                    return output_processor.normalize_path(new_output), target
+            return output_file, target
+
+        # entry is a file
+        if target.exists():
+            target = self._unique_destination(target)
+        shutil.move(str(entry), str(target))
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+        if old_output_path and old_output_path == entry:
+            return output_processor.normalize_path(target), target.parent
+        return output_file, target.parent

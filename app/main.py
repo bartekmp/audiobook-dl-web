@@ -30,9 +30,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(log_dir / "audiobook-dl-web.log"),
+        logging.FileHandler(log_dir / "audiobook-dl-web.log", encoding="utf-8"),
         logging.StreamHandler(),
     ],
+    force=True,
 )
 logger = logging.getLogger(__name__)
 

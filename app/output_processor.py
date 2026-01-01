@@ -14,7 +14,18 @@ logger = logging.getLogger(__name__)
 
 # Constants
 AUDIO_EXTENSIONS = [".m4b", ".mp3", ".m4a"]
-SAVE_KEYWORDS = ["saved to", "written to", "output:", "saved:", "file:"]
+SAVE_KEYWORDS = [
+    "saved to",
+    "written to",
+    "output:",
+    "saved:",
+    "file:",
+    "downloading to",
+    "writing",
+    "created",
+    "merged to",
+    "combined to",
+]
 
 
 def normalize_path(path: str | Path) -> str:
@@ -107,17 +118,78 @@ def find_output_file_in_lines(output_lines: list[str], downloads_dir: Path) -> s
     Returns:
         Relative path to output file or None
     """
-    # Search for file paths with audio extensions
+    # Common patterns in audiobook-dl output:
+    # "Saved to: <path>"
+    # "Output file: <path>"
+    # "Downloaded: <path>"
+    # "Writing to: <path>"
+    # "File saved: <path>"
+    # "Created: <path>"
+
+    found_paths = []
+
     for line in reversed(output_lines):
-        # Look for audio file extensions
-        for ext in AUDIO_EXTENSIONS:
-            if ext in line.lower():
-                # Try to extract the path
-                pattern = r'([^\s"]+' + re.escape(ext) + r")"
-                match = re.search(pattern, line, re.IGNORECASE)
-                if match:
-                    file_path = match.group(1).strip("\"'")
-                    return make_relative_path(file_path, downloads_dir)
+        line_lower = line.lower()
+        line_clean = strip_ansi_codes(line)
+
+        # Check for explicit save/output messages first
+        for keyword in SAVE_KEYWORDS:
+            if keyword in line_lower:
+                # Extract everything after the keyword
+                idx = line_lower.index(keyword) + len(keyword)
+                potential_path = line_clean[idx:].strip().strip("'\"")
+
+                # Check if it has an audio extension
+                if any(potential_path.lower().endswith(ext) for ext in AUDIO_EXTENSIONS):
+                    logger.debug(f"Found path with keyword '{keyword}': {potential_path}")
+                    found_paths.append(make_relative_path(potential_path, downloads_dir))
+
+        # Also look for lines that just contain file paths with audio extensions
+        # (some tools just print the path without a prefix)
+        if not found_paths and any(ext in line_lower for ext in AUDIO_EXTENSIONS):
+            # Fallback: Look for any line containing audio file extensions
+            for ext in AUDIO_EXTENSIONS:
+                if ext.lower() in line_lower:
+                    # Try to extract a file path
+                    # Look for patterns like: /path/to/file.mp3 or C:\path\to\file.mp3
+                    patterns = [
+                        r'([a-zA-Z]:[\\\/](?:[^\\\/\s<>:"|?*]+[\\\/])*[^\\\/\s<>:"|?*]+'
+                        + re.escape(ext)
+                        + r")",  # Windows absolute
+                        r'(\/(?:[^\/\s<>"|?*]+\/)*[^\/\s<>"|?*]+'
+                        + re.escape(ext)
+                        + r")",  # Unix absolute
+                        r'((?:[^\\\/\s<>:"|?*]+[\\\/])*[^\\\/\s<>:"|?*]+'
+                        + re.escape(ext)
+                        + r")",  # Relative
+                    ]
+
+                    for pattern in patterns:
+                        match = re.search(pattern, line_clean, re.IGNORECASE)
+                        if match:
+                            file_path = match.group(1).strip("\"'")
+                            logger.debug(f"Found path by pattern '{ext}': {file_path}")
+                            found_paths.append(make_relative_path(file_path, downloads_dir))
+                            break
+
+    # Return the first found path that actually points to an existing audio file
+    for potential_path in found_paths:
+        # Convert to Path and check
+        full_path = (
+            downloads_dir / potential_path
+            if not Path(potential_path).is_absolute()
+            else Path(potential_path)
+        )
+        if full_path.exists():
+            logger.debug(f"Confirmed existing file: {potential_path}")
+            return make_relative_path(str(full_path), downloads_dir)
+
+    if found_paths:
+        logger.warning(
+            f"Found {len(found_paths)} potential paths but none were valid existing files"
+        )
+    else:
+        logger.debug("No output file paths found in command output")
 
     return None
 
@@ -158,6 +230,34 @@ def find_latest_audio_file(
             return normalize_path(latest_file)
     except Exception as e:
         logger.error(f"Error finding latest file: {e}")
+    return None
+
+
+def find_newest_subdirectory(downloads_dir: Path, min_mtime: float) -> Path | None:
+    """
+    Find the most recently created subdirectory in downloads directory
+
+    Args:
+        downloads_dir: Base downloads directory
+        min_mtime: Minimum creation time (Unix timestamp)
+
+    Returns:
+        Path to newest subdirectory or None
+    """
+    try:
+        newest_dir = None
+        newest_time = 0
+
+        for item in downloads_dir.iterdir():
+            if item.is_dir():
+                mtime = item.stat().st_mtime
+                if mtime > max(newest_time, min_mtime):
+                    newest_time = mtime
+                    newest_dir = item
+
+        return newest_dir
+    except Exception as e:
+        logger.error(f"Error finding newest subdirectory: {e}")
     return None
 
 
@@ -211,13 +311,15 @@ async def extract_audio_metadata(file_path: str) -> dict | None:
         if process.returncode == 0 and stdout:
             data = json.loads(stdout.decode("utf-8"))
 
-            if "format" in data and "tags" in data["format"]:
-                tags = data["format"]["tags"]
-                metadata = {}
+            if "format" in data:
+                fmt = data["format"]
+                tags = fmt.get("tags", {}) or {}
+                metadata: dict[str, str] = {}
 
-                # Extract metadata using helpers
-                if "title" in tags:
-                    metadata["title"] = tags["title"]
+                # Tags (may be missing)
+                title = tags.get("title")
+                if title:
+                    metadata["title"] = title
 
                 author = get_tag_with_fallback(tags, "artist", "album_artist")
                 if author:
@@ -231,16 +333,16 @@ async def extract_audio_metadata(file_path: str) -> dict | None:
                 if year:
                     metadata["year"] = year
 
-                # Duration
-                if "duration" in data["format"]:
-                    duration_sec = float(data["format"]["duration"])
+                # Duration (available even without tags)
+                if "duration" in fmt:
+                    duration_sec = float(fmt["duration"])
                     hours = int(duration_sec // 3600)
                     minutes = int((duration_sec % 3600) // 60)
                     metadata["duration"] = f"{hours}h {minutes}m"
 
-                # File size
-                if "size" in data["format"]:
-                    metadata["size"] = format_file_size(int(data["format"]["size"]))
+                # File size (available even without tags)
+                if "size" in fmt:
+                    metadata["size"] = format_file_size(int(fmt["size"]))
 
                 return metadata if metadata else None
 

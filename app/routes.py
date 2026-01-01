@@ -260,6 +260,7 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
         skip_downloaded: bool = Form(False),
         max_concurrent_downloads: int = Form(2),
         create_folder: bool = Form(False),
+        group_by_author: bool = Form(False),
     ):
         """Update global settings"""
         success = config_manager.update_global_settings(
@@ -267,13 +268,14 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
             skip_downloaded=skip_downloaded,
             max_concurrent_downloads=max_concurrent_downloads,
             create_folder=create_folder,
+            group_by_author=group_by_author,
         )
 
         if success:
             # Reload download manager config to apply new max concurrent downloads
             download_manager.reload_config()
             logger.info(
-                f"Settings updated - output_template: {output_template}, skip_downloaded: {skip_downloaded}, max_concurrent_downloads: {max_concurrent_downloads}, create_folder: {create_folder}"
+                f"Settings updated - output_template: {output_template}, skip_downloaded: {skip_downloaded}, max_concurrent_downloads: {max_concurrent_downloads}, create_folder: {create_folder}, group_by_author: {group_by_author}"
             )
             return RedirectResponse(
                 url="/settings?success=true", status_code=status.HTTP_303_SEE_OTHER
