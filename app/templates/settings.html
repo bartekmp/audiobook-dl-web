@@ -56,6 +56,18 @@
                         </div>
                     </div>
 
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="group_by_author" name="group_by_author" {% if
+                            config.group_by_author %}checked{% endif %}>
+                        <label class="form-check-label" for="group_by_author">
+                            Group by author
+                        </label>
+                        <div class="form-text">
+                            When enabled, downloads are placed under an author directory in the downloads folder.
+                            If "Create folder for downloaded books" is enabled, the book folder goes inside the author folder.
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label for="max_concurrent_downloads" class="form-label">Maximum Concurrent Downloads</label>
                         <input type="number" class="form-control" id="max_concurrent_downloads"
