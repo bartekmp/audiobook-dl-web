@@ -229,6 +229,7 @@ Navigate to **Settings** to configure:
 - **Default output template** - Customize where files are saved
 - **Skip already downloaded books** - Avoid re-downloading
 - **Create folder for downloaded books** - When enabled, each audiobook will be downloaded to a dedicated folder named using the output template (default: disabled)
+- **Group by author** - When enabled, downloads are placed under an author directory in the downloads folder
 - **Maximum concurrent downloads** - Control how many audiobooks download simultaneously (1-10, default: 2)
 - View current configuration
 
@@ -263,6 +264,7 @@ The configuration file (`config/audiobook-dl.toml`) stores service credentials a
 output_template = "{author}/{title}"
 skip_downloaded = true
 create_folder = false
+group_by_author = false
 max_concurrent_downloads = 2
 
 # Service credentials
@@ -309,6 +311,15 @@ Customize where audiobooks are saved using these variables:
 - Template: `{title}` → Folder: `Book Name/`, File: `Book Name.m4b`
 - Template: `{title} - {author}` → Folder: `Book Name - Author Name/`, File: `Book Name - Author Name.m4b`
 - This is useful when audiobooks consist of multiple files, keeping all parts organized in a dedicated folder
+
+### Group by Author
+
+If `group_by_author = true`, downloads are placed under an author directory in the downloads folder.
+
+- With `create_folder = false`: `Downloads/{author}/{output_template}.m4b`
+- With `create_folder = true`: `Downloads/{author}/{output_template}/{output_template}.m4b`
+
+This works well with an `output_template` like `{title} - {author}` and keeps multi-book libraries organized by author.
 
 ### Output Formats
 
