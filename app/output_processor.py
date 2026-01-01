@@ -137,12 +137,7 @@ def find_output_file_in_lines(output_lines: list[str], downloads_dir: Path) -> s
             if keyword in line_clean_lower:
                 # Extract everything after the keyword (from the same cleaned string).
                 idx = line_clean_lower.index(keyword) + len(keyword)
-                potential_path = (
-                    line_clean[idx:]
-                    .lstrip(" \t:-")
-                    .strip()
-                    .strip("'\"")
-                )
+                potential_path = line_clean[idx:].lstrip(" \t:-").strip().strip("'\"")
 
                 # Check if it has an audio extension
                 if any(potential_path.lower().endswith(ext) for ext in AUDIO_EXTENSIONS):

@@ -303,13 +303,19 @@ class DownloadManager:
                     # With per-task staging dirs, we can deterministically search only within the
                     # task's own output tree (staging dir or the moved-to target).
                     # This works for both "single file" (file directly in a folder) and multi-file.
-                    if isinstance(search_root, Path) and search_root.exists() and search_root.is_file():
+                    if (
+                        isinstance(search_root, Path)
+                        and search_root.exists()
+                        and search_root.is_file()
+                    ):
                         task.output_file = output_processor.normalize_path(search_root)
                     else:
                         task.output_file = output_processor.find_latest_audio_file(
                             self.downloads_dir,
                             min_mtime=min_time,
-                            search_dir=search_root if isinstance(search_root, Path) else self.downloads_dir,
+                            search_dir=search_root
+                            if isinstance(search_root, Path)
+                            else self.downloads_dir,
                         )
 
                     if not task.output_file:

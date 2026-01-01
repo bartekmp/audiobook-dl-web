@@ -49,7 +49,7 @@ def test_find_output_file_in_lines_handles_quotes_ansi_and_spaces(tmp_path: Path
     p = downloads_dir / "My Book.m4b"
     p.write_bytes(b"x")
 
-    ansi_line = f"\x1b[32mOutput:\x1b[0m \"{p}\""
+    ansi_line = f'\x1b[32mOutput:\x1b[0m "{p}"'
     rel = output_processor.find_output_file_in_lines([ansi_line], downloads_dir)
     assert rel is not None
     assert rel.endswith("My Book.m4b")
