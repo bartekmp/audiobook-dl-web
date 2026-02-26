@@ -51,6 +51,10 @@
       "matchPackagePatterns": ["^fastapi", "^uvicorn", "^pydantic"],
       "groupName": "FastAPI ecosystem",
       "automerge": false
+    },
+    {
+      "matchUpdateTypes": ["vulnerability"],
+      "prPriority": 20
     }
   ],
   "schedule": ["before 7am on the first day of the month"],
@@ -67,8 +71,7 @@
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["security"],
-    "automerge": false,
-    "prPriority": 20
+    "automerge": false
   },
   "lockFileMaintenance": {
     "enabled": true,
