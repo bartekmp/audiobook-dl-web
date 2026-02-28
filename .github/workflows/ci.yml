@@ -111,7 +111,7 @@ jobs:
       - name: Semantic Release
         id: semantic
         if: github.ref == 'refs/heads/main'
-        uses: python-semantic-release/python-semantic-release@v9.8.0
+        uses: python-semantic-release/python-semantic-release@0dc72ac9058a62054a45f6344c83a423d7f906a8 # v9.21.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
