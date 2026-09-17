@@ -59,7 +59,7 @@
   ],
   "schedule": ["before 7am on the first day of the month"],
   "labels": ["dependencies"],
-  "commitMessagePrefix": "chore(deps):",
+  "commitMessagePrefix": "fix(deps):",
   "prCreation": "immediate",
   "prHourlyLimit": 2,
   "prConcurrentLimit": 10,
