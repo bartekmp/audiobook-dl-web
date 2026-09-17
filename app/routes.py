@@ -69,7 +69,9 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
     @router.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         """Home page"""
-        return templates.TemplateResponse("index.html", get_base_context(request, config_manager))
+        return templates.TemplateResponse(
+            request, "index.html", get_base_context(request, config_manager)
+        )
 
     @router.get("/configure", response_class=HTMLResponse)
     async def configure_page(request: Request, service: str | None = None):
@@ -85,7 +87,7 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
             context["selected_service"] = {**SUPPORTED_SERVICES[service], "id": service}
             context["current_config"] = config_manager.get_source_config(service)
 
-        return templates.TemplateResponse("configure.html", context)
+        return templates.TemplateResponse(request, "configure.html", context)
 
     @router.post("/configure/{service}")
     async def configure_service(
@@ -145,7 +147,7 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
             return RedirectResponse(url="/configure", status_code=status.HTTP_303_SEE_OTHER)
 
         return templates.TemplateResponse(
-            "download.html", get_base_context(request, config_manager)
+            request, "download.html", get_base_context(request, config_manager)
         )
 
     @router.post("/api/download")
@@ -252,7 +254,7 @@ def init_routes(config_manager, download_manager, config_dir: str, downloads_dir
         context["config_file_path"] = config_manager.get_config_file_path()
         context["downloads_dir"] = downloads_dir
 
-        return templates.TemplateResponse("settings.html", context)
+        return templates.TemplateResponse(request, "settings.html", context)
 
     @router.post("/settings")
     async def update_settings(
