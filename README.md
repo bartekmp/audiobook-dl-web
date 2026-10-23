@@ -1,3 +1,5 @@
+
+
 # audiobook-dl-web
 
 A modern, responsive web interface for [audiobook-dl](https://github.com/jo1gi/audiobook-dl) - download audiobooks from various online services through an easy-to-use web application.
@@ -10,7 +12,7 @@ A modern, responsive web interface for [audiobook-dl](https://github.com/jo1gi/a
 
 **With Docker (Recommended):**
 ```bash
-git clone https://github.com/yourusername/audiobook-dl-web.git
+git clone https://github.com/bartekmp/audiobook-dl-web.git
 cd audiobook-dl-web
 docker-compose up -d
 ```
@@ -18,7 +20,7 @@ Open `http://localhost:8000` → Configure Services → Enter credentials → Do
 
 **Without Docker:**
 ```bash
-git clone https://github.com/yourusername/audiobook-dl-web.git
+git clone https://github.com/bartekmp/audiobook-dl-web.git
 cd audiobook-dl-web
 python -m venv venv
 source venv/bin/activate  # Linux/macOS
@@ -72,7 +74,7 @@ The easiest way to run audiobook-dl-web is using Docker:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/audiobook-dl-web.git
+git clone https://github.com/bartekmp/audiobook-dl-web.git
 cd audiobook-dl-web
 
 # Copy the example environment file
@@ -156,7 +158,7 @@ If you prefer to run without Docker:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/audiobook-dl-web.git
+git clone https://github.com/bartekmp/audiobook-dl-web.git
 cd audiobook-dl-web
 
 # Create a virtual environment
