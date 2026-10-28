@@ -48,12 +48,13 @@
       "automerge": false
     },
     {
-      "matchPackagePatterns": ["^fastapi", "^uvicorn", "^pydantic"],
+      "matchPackageNames": ["/^fastapi/", "/^uvicorn/", "/^pydantic/"],
       "groupName": "FastAPI ecosystem",
       "automerge": false
     },
     {
-      "matchUpdateTypes": ["vulnerability"],
+      "matchPackageNames": ["*"],
+      "isVulnerabilityAlert": true,
       "prPriority": 20
     }
   ],
