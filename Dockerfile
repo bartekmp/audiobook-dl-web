@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # Install ffmpeg (required for combining audio files)
 RUN apt-get update && \
